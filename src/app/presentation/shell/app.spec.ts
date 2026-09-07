@@ -91,6 +91,60 @@ describe('App message submission', () => {
     expect((app as any).messages()[0].text).toBe('Câu hỏi cần gửi');
   });
 
+  it('queues a follow-up while streaming and preserves each request model and history', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: () => void) => {
+      callback();
+      return 0;
+    });
+    vi.stubGlobal('localStorage', { getItem: vi.fn(() => null), setItem: vi.fn() });
+    const releases: Array<() => void> = [];
+    const requests: Array<{ model: string; messages: ChatMessage[] }> = [];
+    const stream = vi.fn(async (
+      model: string,
+      messages: ChatMessage[],
+      _signal: AbortSignal,
+      onDelta: (text: string) => void,
+    ) => {
+      requests.push({ model, messages });
+      await new Promise<void>((resolve) => releases.push(resolve));
+      onDelta(`Trả lời cho ${messages.at(-1)?.content}`);
+    });
+    const app = new App({ health: vi.fn().mockResolvedValue(undefined), stream } as unknown as ChatService);
+
+    (app as any).draft.set('Câu hỏi một');
+    const first = (app as any).send();
+    await vi.waitFor(() => expect(stream).toHaveBeenCalledOnce());
+
+    (app as any).onModelChange('x-ai/grok-4.6');
+    (app as any).draft.set('Câu hỏi hai');
+    const second = (app as any).send();
+    await Promise.resolve();
+
+    expect(stream).toHaveBeenCalledOnce();
+    expect((app as any).queuedRequests().map((item: { payload: { content: string } }) => item.payload.content)).toEqual([
+      'Câu hỏi hai',
+    ]);
+
+    releases.shift()?.();
+    await vi.waitFor(() => expect(stream).toHaveBeenCalledTimes(2));
+    expect(requests[0].model).toBe('deepseek/deepseek-v4-flash');
+    expect(requests[1].model).toBe('x-ai/grok-4.6');
+    expect(requests[1].messages.map((message) => `${message.role}:${message.content}`)).toEqual([
+      'user:Câu hỏi một',
+      'assistant:Trả lời cho Câu hỏi một',
+      'user:Câu hỏi hai',
+    ]);
+
+    releases.shift()?.();
+    await Promise.all([first, second]);
+    expect((app as any).messages().map((message: { text: string }) => message.text)).toEqual([
+      'Câu hỏi một',
+      'Trả lời cho Câu hỏi một',
+      'Câu hỏi hai',
+      'Trả lời cho Câu hỏi hai',
+    ]);
+  });
+
   it('persists a normal chat in Redis so its conversation URL survives a reload', async () => {
     const createConversation = vi.fn().mockResolvedValue({
       id: 'abcdefghijklmnopqrstuv',

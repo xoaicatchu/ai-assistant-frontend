@@ -207,7 +207,7 @@
                   <svg lucideBot class="h-4 w-4" aria-hidden="true"></svg>
                 }
               </div>
-              @if (message.role === 'user' && editingMessageId() !== message.id && !isSharedConversationReadOnly()) {
+              @if (message.role === 'user' && message.status !== 'queued' && editingMessageId() !== message.id && !isSharedConversationReadOnly()) {
                 <div class="message-actions user-message-actions">
                   <button
                     class="message-action-button"
@@ -224,6 +224,9 @@
                 <div class="message-meta">{{ message.role === 'user' ? 'Bạn' : 'Trợ lý' }}</div>
                 @if (message.image) {
                   <img class="message-image" [src]="message.image.dataUrl" alt="Ảnh đính kèm" />
+                }
+                @if (message.role === 'user' && message.status === 'queued') {
+                  <div class="queued-message-status">Đang chờ câu trả lời trước hoàn tất…</div>
                 }
                 @if (message.role === 'user' && editingMessageId() === message.id) {
                   <div class="edit-question-form">
@@ -322,6 +325,31 @@
           <div class="error-banner" role="alert">
             <svg lucideCircleAlert class="h-4 w-4 shrink-0" aria-hidden="true"></svg>
             <span>{{ error() }}</span>
+          </div>
+        }
+
+        @if (queuedRequests().length > 0) {
+          <div class="request-queue" role="status" aria-live="polite">
+            <div class="request-queue-heading">
+              <span>{{ queuedRequests().length }} câu hỏi đang chờ</span>
+              <span class="request-queue-hint">Sẽ xử lý lần lượt</span>
+            </div>
+            <div class="request-queue-list">
+              @for (item of queuedRequests(); track item.id) {
+                <div class="request-queue-item">
+                  <span class="request-queue-text">{{ item.payload.content || 'Ảnh đính kèm' }}</span>
+                  <button
+                    class="message-action-button"
+                    type="button"
+                    (click)="cancelQueuedRequest(item.id)"
+                    aria-label="Xóa câu hỏi khỏi hàng đợi"
+                    title="Xóa khỏi hàng đợi"
+                  >
+                    <svg lucideX class="h-3.5 w-3.5" aria-hidden="true"></svg>
+                  </button>
+                </div>
+              }
+            </div>
           </div>
         }
 

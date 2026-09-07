@@ -84,6 +84,7 @@ import { VoiceInputController } from '../../infrastructure/browser/voice-input';
 import { AdminPage } from '../admin/admin-page';
 import { loadTheme, saveTheme } from '../../infrastructure/browser/theme';
 import { ChatUseCases } from '../../application/chat/chat-use-cases';
+import { ChatRequestQueue, type ChatQueueItem } from '../../application/chat/chat-request-queue';
 
 type HealthState = 'checking' | 'online' | 'offline' | 'unconfigured';
 type ActiveTab = 'chat' | 'setup';
@@ -105,6 +106,7 @@ interface ActiveRequest {
 }
 
 type ChatConversation = StoredConversation;
+type PersistedViewMessage = ViewMessage & { status: Exclude<MessageStatus, 'queued'> };
 
 function maxConversationId(conversations: readonly ChatConversation[]): number {
   return conversations.reduce((maxId, conversation) => Math.max(maxId, conversation.id), 0);
@@ -124,6 +126,15 @@ function maxRequestId(conversations: readonly ChatConversation[]): number {
       conversation.messages.reduce((requestMax, message) => Math.max(requestMax, message.requestId), maxId),
     0,
   );
+}
+
+interface QueuedChatRequest {
+  conversationId: number;
+  content: string;
+  image: ImageAttachment | null;
+  model: string;
+  requestId: number;
+  userMessageId: number;
 }
 
 function modelServerForGateway(baseUrl: string): ModelServer {
@@ -220,6 +231,7 @@ export class App implements OnDestroy {
       )?.messages ?? [])]);
   protected readonly voiceListening = signal(false);
   protected readonly busy = signal(false);
+  protected readonly queuedRequests = signal<readonly ChatQueueItem<QueuedChatRequest>[]>([]);
   protected readonly error = signal('');
   protected readonly health = signal<HealthState>(
     runtimeConfig.isVercel && !runtimeConfig.apiBaseUrl ? 'unconfigured' : 'checking',
@@ -236,6 +248,7 @@ export class App implements OnDestroy {
   private readonly acceptedImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
   private readonly voiceInput = new VoiceInputController();
   private readonly serverConversationCreates = new Map<number, Promise<string | null>>();
+  private readonly requestQueue = new ChatRequestQueue<QueuedChatRequest>();
   private autoScrollFramePending = false;
 
   constructor(private readonly chatService: ChatService) {
@@ -269,9 +282,6 @@ export class App implements OnDestroy {
     if (!content && !image) {
       return;
     }
-    if (this.busy()) {
-      this.stopActiveRequest('Đã dừng để gửi câu mới.');
-    }
     if (!selectedModel) {
       this.error.set('Hãy nhập model trước khi gửi.');
       return;
@@ -292,24 +302,16 @@ export class App implements OnDestroy {
       return;
     }
 
-    const requestMessages = buildRequestMessages(this.messages());
-    requestMessages.push(toChatMessage('user', content, image?.dataUrl));
-
     const requestId = ++this.requestGeneration;
     const userMessage: ViewMessage = {
       id: this.nextMessageId++,
       requestId,
       role: 'user',
       text: content,
-      status: 'complete',
+      status: 'queued',
       image: image ?? undefined,
     };
-    const assistantId = this.nextMessageId++;
-    this.messages.update((messages) => [
-      ...messages,
-      userMessage,
-      { id: assistantId, requestId, role: 'assistant', text: '', status: 'pending' },
-    ]);
+    this.messages.update((messages) => [...messages, userMessage]);
     this.scrollConversationToBottom();
     this.draft.set('');
     this.pendingImage.set(null);
@@ -319,16 +321,61 @@ export class App implements OnDestroy {
     this.shareMessage.set('');
     this.updateActiveConversation(content);
     const conversationId = this.activeConversationId();
-    // Allocate the server record before the gateway request starts. This keeps
-    // the URL reloadable even while the assistant is still streaming.
-    void this.ensureServerConversation(conversationId);
-
-    await this.runRequest(
+    this.requestQueue.enqueue({
       conversationId,
-      requestMessages,
-      selectedModel,
+      content,
+      image: image ?? null,
+      model: selectedModel,
       requestId,
-      userMessage.id,
+      userMessageId: userMessage.id,
+    });
+    this.queuedRequests.set(this.requestQueue.snapshot());
+    await this.drainChatQueue();
+  }
+
+  protected cancelQueuedRequest(id: number): void {
+    const item = this.requestQueue.snapshot().find((queued) => queued.id === id);
+    if (!item || !this.requestQueue.remove(id)) {
+      return;
+    }
+
+    this.queuedRequests.set(this.requestQueue.snapshot());
+    this.updateConversationMessages(item.payload.conversationId, (messages) =>
+      messages.filter((message) => message.id !== item.payload.userMessageId),
+      );
+  }
+
+  private async drainChatQueue(): Promise<void> {
+    await this.requestQueue.run(async (item) => {
+      this.queuedRequests.set(this.requestQueue.snapshot());
+      await this.processQueuedRequest(item.payload);
+      this.queuedRequests.set(this.requestQueue.snapshot());
+    });
+    this.queuedRequests.set(this.requestQueue.snapshot());
+  }
+
+  private async processQueuedRequest(request: QueuedChatRequest): Promise<void> {
+    const conversation = this.conversations().find((item) => item.id === request.conversationId);
+    const userMessage = conversation?.messages.find((message) => message.id === request.userMessageId);
+    if (!conversation || !userMessage || userMessage.status !== 'queued') {
+      return;
+    }
+
+    const assistantId = this.nextMessageId++;
+    this.updateConversationMessages(request.conversationId, (messages) => [
+      ...messages.map((message) =>
+        message.id === request.userMessageId ? { ...message, status: 'complete' as const } : message,
+      ),
+      { id: assistantId, requestId: request.requestId, role: 'assistant', text: '', status: 'pending' },
+    ]);
+    const requestMessages = buildRequestMessages(this.conversationMessages(request.conversationId));
+    await this.ensureServerConversation(request.conversationId);
+    await this.runRequest(
+      request.conversationId,
+      requestMessages,
+      request.model,
+      request.requestId,
+      request.userMessageId,
       assistantId,
     );
   }
@@ -1756,6 +1803,7 @@ export class App implements OnDestroy {
 
   private conversationMessagesForApi(messages: readonly ViewMessage[]): ConversationApiMessage[] {
     return messages
+      .filter((message): message is PersistedViewMessage => message.status !== 'queued')
       .filter((message) => Boolean(message.text.trim()))
       .filter((message) => message.role === 'user' || message.status !== 'pending')
       .map(({ id, requestId, role, text, status }) => ({

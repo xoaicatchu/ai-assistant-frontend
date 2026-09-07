@@ -644,6 +644,13 @@ textarea:disabled {
   text-transform: uppercase;
 }
 
+.queued-message-status {
+  margin-top: 6px;
+  color: #6b6c7b;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
 .message-actions {
   min-width: 0;
   display: flex;
@@ -782,6 +789,58 @@ textarea:disabled {
   color: #b42318;
   background: #fff6f5;
   border: 1px solid #ffd5d1;
+}
+
+.request-queue {
+  width: min(calc(100% - 40px), var(--content-rail));
+  margin: 0 auto 9px;
+  padding: 9px 11px;
+  color: #4f5260;
+  background: #f7f9ff;
+  border: 1px solid #dbe7ff;
+  border-radius: 10px;
+}
+
+.request-queue-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.request-queue-hint {
+  color: #8e8ea0;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.request-queue-list {
+  display: grid;
+  gap: 4px;
+}
+
+.request-queue-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 0 3px 7px;
+  border-left: 2px solid #9bbcff;
+}
+
+.request-queue-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #555762;
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer {
@@ -1403,6 +1462,18 @@ textarea:disabled {
   }
 
   .error-banner {
+    font-size: 12px;
+  }
+
+  .request-queue {
+    width: calc(100% - 24px);
+  }
+
+  .request-queue-heading {
+    font-size: 12px;
+  }
+
+  .request-queue-text {
     font-size: 12px;
   }
 

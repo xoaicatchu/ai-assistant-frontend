@@ -80,5 +80,5 @@
 - [x] **Step 1: Run `npm test -- --run` and record the complete result.
 - [x] **Step 2: Run `npm run build` and confirm exit code 0.
 - [x] **Step 3: Inspect `git diff`, confirm no unrelated files or secrets changed.
-- [ ] **Step 4: Push `master` to `origin` and inspect the resulting Vercel deployment status when available.
-- [ ] **Step 5: Only report completion with fresh test/build/deployment evidence.
+- [x] **Step 4: Push `master` to `origin` and inspect the resulting Vercel deployment status when available.
+- [x] **Step 5: Only report completion with fresh test/build/deployment evidence.

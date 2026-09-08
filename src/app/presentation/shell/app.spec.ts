@@ -560,6 +560,77 @@ describe('App message submission', () => {
     );
   });
 
+  it('uses the clipboard instead of a native share sheet on desktop', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const nativeShare = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (X11; Linux x86_64)',
+      share: nativeShare,
+      clipboard: { writeText },
+    });
+    vi.stubGlobal('location', { href: 'https://example.com/' });
+    vi.stubGlobal('history', { replaceState: vi.fn() });
+    vi.stubGlobal('localStorage', { getItem: vi.fn(() => null), setItem: vi.fn() });
+
+    const app = new App({
+      health: vi.fn().mockResolvedValue(undefined),
+      createConversation: vi.fn().mockResolvedValue({
+        id: 'abcdefghijklmnopqrstuv',
+        ownerToken: 'owner-token-for-tests',
+      }),
+      updateConversation: vi.fn().mockResolvedValue({}),
+      publishConversation: vi.fn().mockResolvedValue({
+        id: 'abcdefghijklmnopqrstuv',
+        isPublic: true,
+      }),
+    } as unknown as ChatService);
+    (app as any).messages.set([
+      { id: 1, requestId: 1, role: 'user', text: 'Câu hỏi', status: 'complete' },
+      { id: 2, requestId: 1, role: 'assistant', text: 'Câu trả lời', status: 'complete' },
+    ]);
+
+    await (app as any).shareActiveConversation(2);
+
+    expect(nativeShare).not.toHaveBeenCalled();
+    expect(writeText).toHaveBeenCalledWith('https://example.com/conversation/abcdefghijklmnopqrstuv');
+  });
+
+  it('uses the native share sheet on iPhone', async () => {
+    const nativeShare = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)',
+      share: nativeShare,
+    });
+    vi.stubGlobal('location', { href: 'https://example.com/' });
+    vi.stubGlobal('history', { replaceState: vi.fn() });
+    vi.stubGlobal('localStorage', { getItem: vi.fn(() => null), setItem: vi.fn() });
+
+    const app = new App({
+      health: vi.fn().mockResolvedValue(undefined),
+      createConversation: vi.fn().mockResolvedValue({
+        id: 'abcdefghijklmnopqrstuv',
+        ownerToken: 'owner-token-for-tests',
+      }),
+      updateConversation: vi.fn().mockResolvedValue({}),
+      publishConversation: vi.fn().mockResolvedValue({
+        id: 'abcdefghijklmnopqrstuv',
+        isPublic: true,
+      }),
+    } as unknown as ChatService);
+    (app as any).messages.set([
+      { id: 1, requestId: 1, role: 'user', text: 'Câu hỏi', status: 'complete' },
+      { id: 2, requestId: 1, role: 'assistant', text: 'Câu trả lời', status: 'complete' },
+    ]);
+
+    await (app as any).shareActiveConversation(2);
+
+    expect(nativeShare).toHaveBeenCalledWith({
+      title: 'Cuộc trò chuyện mới',
+      text: 'Cuộc trò chuyện từ Clinic Support AI',
+      url: 'https://example.com/conversation/abcdefghijklmnopqrstuv',
+    });
+  });
+
   it('keeps the public conversation URL visible when clipboard APIs are unavailable', async () => {
     const replaceState = vi.fn();
     vi.stubGlobal('location', { href: 'https://example.com/conversation/abcdefghijklmnopqrstuv' });

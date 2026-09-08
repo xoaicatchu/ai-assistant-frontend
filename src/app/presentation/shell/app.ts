@@ -923,7 +923,7 @@ export class App implements OnDestroy {
     // a native share sheet or access its clipboard.
     this.replaceCurrentUrl(shareUrl);
     try {
-      if (typeof globalThis.navigator?.share === 'function') {
+      if (this.canUseNativeShare()) {
         await globalThis.navigator.share({
           title,
           text: 'Cuộc trò chuyện từ Clinic Support AI',
@@ -1760,6 +1760,15 @@ export class App implements OnDestroy {
         this.serverConversationCreates.delete(conversationId);
       }
     }
+  }
+
+  private canUseNativeShare(): boolean {
+    const navigatorRef = globalThis.navigator;
+    if (typeof navigatorRef?.share !== 'function') {
+      return false;
+    }
+
+    return /Android|iPhone|iPad|iPod/iu.test(String(navigatorRef.userAgent ?? ''));
   }
 
   private ensureLocalConversationId(conversationId: number): string | null {

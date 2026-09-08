@@ -560,6 +560,42 @@ describe('App message submission', () => {
     );
   });
 
+  it('keeps the public conversation URL visible when clipboard APIs are unavailable', async () => {
+    const replaceState = vi.fn();
+    vi.stubGlobal('location', { href: 'https://example.com/conversation/abcdefghijklmnopqrstuv' });
+    vi.stubGlobal('history', { replaceState });
+    vi.stubGlobal('navigator', {});
+    vi.stubGlobal('localStorage', { getItem: vi.fn(() => null), setItem: vi.fn() });
+
+    const conversationId = 'abcdefghijklmnopqrstuv';
+    const app = new App({
+      health: vi.fn().mockResolvedValue(undefined),
+      updateConversation: vi.fn().mockResolvedValue({}),
+      publishConversation: vi.fn().mockResolvedValue({ id: conversationId, isPublic: true }),
+    } as unknown as ChatService);
+    const messages = [
+      { id: 1, requestId: 1, role: 'user', text: 'Câu hỏi', status: 'complete' },
+      { id: 2, requestId: 1, role: 'assistant', text: 'Câu trả lời', status: 'complete' },
+    ];
+    (app as any).conversations.set([{
+      id: 1,
+      title: 'Chat',
+      serverId: conversationId,
+      serverToken: 'owner-token',
+      messages,
+    }]);
+    (app as any).messages.set(messages);
+
+    await (app as any).shareActiveConversation(2);
+
+    expect(replaceState).toHaveBeenLastCalledWith(
+      null,
+      '',
+      `https://example.com/conversation/${conversationId}`,
+    );
+    expect((app as any).shareMessage()).toContain('Đã công khai');
+  });
+
   it('copies an assistant answer and keeps the feedback attached to that answer', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });

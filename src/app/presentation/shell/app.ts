@@ -918,6 +918,10 @@ export class App implements OnDestroy {
   }
 
   private async deliverShareUrl(title: string, shareUrl: string, messageId: number | null): Promise<void> {
+    // Publish has already succeeded at this point. Keep the canonical
+    // conversation URL in the address bar even when this browser cannot open
+    // a native share sheet or access its clipboard.
+    this.replaceCurrentUrl(shareUrl);
     try {
       if (typeof globalThis.navigator?.share === 'function') {
         await globalThis.navigator.share({
@@ -925,13 +929,11 @@ export class App implements OnDestroy {
           text: 'Cuộc trò chuyện từ Clinic Support AI',
           url: shareUrl,
         });
-        this.replaceCurrentUrl(shareUrl);
         this.setMessageActionFeedback(messageId, 'Đã mở bảng chia sẻ.', 'success');
         return;
       }
 
       await this.copyToClipboard(shareUrl);
-      this.replaceCurrentUrl(shareUrl);
       this.setMessageActionFeedback(messageId, 'Đã sao chép link chia sẻ.', 'success');
     } catch (caughtError) {
       if (this.isShareCancellation(caughtError)) {
@@ -940,10 +942,13 @@ export class App implements OnDestroy {
 
       try {
         await this.copyToClipboard(shareUrl);
-        this.replaceCurrentUrl(shareUrl);
         this.setMessageActionFeedback(messageId, 'Không mở được bảng chia sẻ; đã sao chép link.', 'success');
       } catch {
-        this.setMessageActionFeedback(messageId, 'Không thể sao chép link chia sẻ trên thiết bị này.', 'error');
+        this.setMessageActionFeedback(
+          messageId,
+          'Đã công khai cuộc trò chuyện. Hãy copy URL hiện tại trên thanh địa chỉ để chia sẻ.',
+          'success',
+        );
       }
     }
   }

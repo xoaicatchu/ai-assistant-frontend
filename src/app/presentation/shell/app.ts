@@ -303,15 +303,8 @@ export class App implements OnDestroy {
     }
 
     const requestId = ++this.requestGeneration;
-    const userMessage: ViewMessage = {
-      id: this.nextMessageId++,
-      requestId,
-      role: 'user',
-      text: content,
-      status: 'queued',
-      image: image ?? undefined,
-    };
-    this.messages.update((messages) => [...messages, userMessage]);
+    const userMessageId = this.nextMessageId++;
+    const isEmptyConversation = this.messages().length === 0;
     this.scrollConversationToBottom();
     this.draft.set('');
     this.pendingImage.set(null);
@@ -319,7 +312,7 @@ export class App implements OnDestroy {
     focusConversationAfterAppleSubmit(this.conversation?.nativeElement);
     this.error.set('');
     this.shareMessage.set('');
-    this.updateActiveConversation(content);
+    this.updateActiveConversation(isEmptyConversation ? content : undefined);
     const conversationId = this.activeConversationId();
     this.ensureLocalConversationId(conversationId);
     this.requestQueue.enqueue({
@@ -328,7 +321,7 @@ export class App implements OnDestroy {
       image: image ?? null,
       model: selectedModel,
       requestId,
-      userMessageId: userMessage.id,
+      userMessageId,
     });
     this.queuedRequests.set(this.requestQueue.snapshot());
     await this.drainChatQueue();
@@ -341,9 +334,6 @@ export class App implements OnDestroy {
     }
 
     this.queuedRequests.set(this.requestQueue.snapshot());
-    this.updateConversationMessages(item.payload.conversationId, (messages) =>
-      messages.filter((message) => message.id !== item.payload.userMessageId),
-      );
   }
 
   private async drainChatQueue(): Promise<void> {
@@ -357,16 +347,22 @@ export class App implements OnDestroy {
 
   private async processQueuedRequest(request: QueuedChatRequest): Promise<void> {
     const conversation = this.conversations().find((item) => item.id === request.conversationId);
-    const userMessage = conversation?.messages.find((message) => message.id === request.userMessageId);
-    if (!conversation || !userMessage || userMessage.status !== 'queued') {
+    if (!conversation) {
       return;
     }
 
+    const userMessage: ViewMessage = {
+      id: request.userMessageId,
+      requestId: request.requestId,
+      role: 'user',
+      text: request.content,
+      status: 'complete',
+      image: request.image ?? undefined,
+    };
     const assistantId = this.nextMessageId++;
     this.updateConversationMessages(request.conversationId, (messages) => [
-      ...messages.map((message) =>
-        message.id === request.userMessageId ? { ...message, status: 'complete' as const } : message,
-      ),
+      ...messages,
+      userMessage,
       { id: assistantId, requestId: request.requestId, role: 'assistant', text: '', status: 'pending' },
     ]);
     const requestMessages = buildRequestMessages(this.conversationMessages(request.conversationId));

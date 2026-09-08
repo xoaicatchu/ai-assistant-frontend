@@ -126,6 +126,11 @@ describe('App message submission', () => {
     expect((app as any).queuedRequests().map((item: { payload: { content: string } }) => item.payload.content)).toEqual([
       'Câu hỏi hai',
     ]);
+    expect((app as any).messages().map((message: { text: string }) => message.text)).toEqual([
+      'Câu hỏi một',
+      '',
+    ]);
+    expect((app as any).messages().some((message: { text: string }) => message.text === 'Câu hỏi hai')).toBe(false);
 
     releases.shift()?.();
     await vi.waitFor(() => expect(stream).toHaveBeenCalledTimes(2));

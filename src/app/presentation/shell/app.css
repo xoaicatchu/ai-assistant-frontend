@@ -644,13 +644,6 @@ textarea:disabled {
   text-transform: uppercase;
 }
 
-.queued-message-status {
-  margin-top: 6px;
-  color: #6b6c7b;
-  font-size: 10px;
-  line-height: 1.35;
-}
-
 .message-actions {
   min-width: 0;
   display: flex;
@@ -793,54 +786,67 @@ textarea:disabled {
 
 .request-queue {
   width: min(calc(100% - 40px), var(--content-rail));
-  margin: 0 auto 9px;
-  padding: 9px 11px;
-  color: #4f5260;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px auto 0;
+  padding: 6px 8px;
+  color: #5f6472;
+  font-size: 10px;
+  line-height: 1.3;
   background: #f7f9ff;
   border: 1px solid #dbe7ff;
-  border-radius: 10px;
+  border-radius: 999px;
 }
 
-.request-queue-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 6px;
+.request-queue-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  background: #7da7ff;
+  border-radius: 50%;
+}
+
+.request-queue-count {
+  flex: 0 0 auto;
   color: #2563eb;
-  font-size: 11px;
   font-weight: 700;
 }
 
-.request-queue-hint {
-  color: #8e8ea0;
-  font-size: 10px;
-  font-weight: 500;
-}
-
-.request-queue-list {
-  display: grid;
-  gap: 4px;
-}
-
-.request-queue-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 3px 0 3px 7px;
-  border-left: 2px solid #9bbcff;
-}
-
-.request-queue-text {
+.request-queue-preview {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  color: #555762;
-  font-size: 11px;
-  line-height: 1.35;
+  color: #8e8ea0;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.request-queue-remove {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: #8e8ea0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.request-queue-remove:hover {
+  color: #2563eb;
+  background: #eaf1ff;
+  border-color: #c9dcff;
+}
+
+.request-queue-remove:focus-visible {
+  outline: 2px solid #7da7ff;
+  outline-offset: 1px;
 }
 
 .composer {
@@ -1469,12 +1475,9 @@ textarea:disabled {
     width: calc(100% - 24px);
   }
 
-  .request-queue-heading {
-    font-size: 12px;
-  }
-
-  .request-queue-text {
-    font-size: 12px;
+  .request-queue {
+    padding: 5px 8px;
+    font-size: 11px;
   }
 
   .composer {

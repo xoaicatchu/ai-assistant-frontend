@@ -79,6 +79,10 @@ describe('model picker labels', () => {
     expect(modelOptionsForServer('custom', ['anthropic:claude-sonnet']).map((option) => option.route)).toEqual([
       'anthropic:claude-sonnet',
     ]);
+    expect(modelOptionsForServer('custom', ['x-ai/grok-4.6', 'local/model']).map((option) => option.route)).toEqual([
+      'x-ai/grok-4.6',
+      'local/model',
+    ]);
   });
 
   it('falls back to the selected server default when the current model is unavailable', () => {

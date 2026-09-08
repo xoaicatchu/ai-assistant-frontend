@@ -13,7 +13,7 @@ export interface ChatGatewayPort {
     onDelta: (text: string) => void,
     onRecovered?: (text: string) => void,
   ): Promise<void>;
-  health(signal: AbortSignal, baseUrl?: string): Promise<void>;
+  health(signal: AbortSignal, baseUrl?: string, apiKey?: string): Promise<void>;
   createConversation(
     title: string,
     messages: readonly ConversationApiMessage[],

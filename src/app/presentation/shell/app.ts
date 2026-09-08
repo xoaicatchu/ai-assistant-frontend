@@ -63,6 +63,15 @@ import {
   type ModelServer,
   type ModelCapabilitySupport,
 } from '../../domain/model/model-picker';
+import {
+  DEFAULT_SERVER_ID,
+  DEFAULT_SERVER_PROFILE,
+  createCustomServerProfile,
+  normalizeServerBaseUrl,
+  normalizeServerModels,
+  type ServerProfile,
+} from '../../domain/server/server-profile';
+import { readSettingsRoute, settingsRouteUrl, type SettingsRoute } from '../../domain/server/settings-route';
 import { apiUrl, runtimeConfig, setRuntimeApiBaseUrl } from '../../infrastructure/http/runtime-config';
 import {
   isPageNearBottom,
@@ -76,7 +85,6 @@ import { loadAutoScrollPreference, saveAutoScrollPreference } from '../../infras
 import {
   DEFAULT_SETUP_SETTINGS,
   loadSetupSettings,
-  normalizeGatewayBaseUrl,
   saveSetupSettings,
   type SetupSettings,
 } from '../../infrastructure/browser/setup-storage';
@@ -87,10 +95,9 @@ import { ChatUseCases } from '../../application/chat/chat-use-cases';
 import { ChatRequestQueue, type ChatQueueItem } from '../../application/chat/chat-request-queue';
 
 type HealthState = 'checking' | 'online' | 'offline' | 'unconfigured';
-type ActiveTab = 'chat' | 'setup';
+type ActiveTab = 'chat' | 'servers' | 'server-detail';
 type MessageActionTone = 'success' | 'error';
 type SharedRouteState = 'none' | 'loading' | 'loaded' | 'missing' | 'error';
-type ServerChoice = 'default' | 'custom';
 
 interface MessageActionFeedback {
   text: string;
@@ -137,11 +144,6 @@ interface QueuedChatRequest {
   userMessageId: number;
 }
 
-function modelServerForGateway(baseUrl: string): ModelServer {
-  const normalized = baseUrl.trim().replace(/\/+$/u, '');
-  return normalized === '' || normalized === '/api' ? 'default' : 'custom';
-}
-
 @Component({
   selector: 'app-root',
   imports: [
@@ -183,15 +185,19 @@ export class App implements OnDestroy {
   protected readonly isAdminRoute = globalThis.location?.pathname?.startsWith('/admin') ?? false;
   private readonly initialSetup = loadSetupSettings();
   private readonly initialConversationState = loadConversationState();
+  private readonly initialSettingsRoute = readSettingsRoute(globalThis.location?.pathname ?? '');
   private readonly initialSharedConversationId = readConversationId(globalThis.location?.href ?? '');
   protected readonly runtime = runtimeConfig;
   protected readonly brandLabel = 'MEDICAL HARNESS FRAMEWORK';
   protected readonly darkMode = signal(loadTheme() === 'dark');
-  protected readonly activeTab = signal<ActiveTab>('chat');
+  protected readonly activeTab = signal<ActiveTab>(this.initialSettingsRoute?.page === 'server-detail' ? 'server-detail' : this.initialSettingsRoute ? 'servers' : 'chat');
+  protected readonly settingsServerId = signal<string | null>(this.initialSettingsRoute?.page === 'server-detail' ? this.initialSettingsRoute.serverId : null);
   protected readonly serverMenuOpen = signal(false);
-  protected readonly serverHealth = signal<Record<ModelServer, HealthState>>({
-    default: 'checking',
-    custom: 'unconfigured',
+  protected readonly customServers = signal<ServerProfile[]>(this.initialSetup.customServers);
+  protected readonly activeServerId = signal(this.initialSetup.activeServerId);
+  protected readonly serverHealth = signal<Record<string, HealthState>>({
+    [DEFAULT_SERVER_ID]: 'checking',
+    ...Object.fromEntries(this.initialSetup.customServers.map((server) => [server.id, 'unconfigured'])),
   });
   protected readonly sharedRouteState = signal<SharedRouteState>(
     this.initialSharedConversationId ? 'loading' : 'none',
@@ -203,19 +209,22 @@ export class App implements OnDestroy {
   protected readonly activeConversationId = signal(this.initialConversationState.activeConversationId);
   protected readonly model = signal(
     resolveModelForServer(
-      modelServerForGateway(this.initialSetup.gatewayBaseUrl),
+      this.initialSetup.activeServerId === DEFAULT_SERVER_ID ? 'default' : 'custom',
       this.initialSetup.selectedModel,
       this.initialSetup.customModels,
     )?.route ?? '',
   );
   protected readonly modelOptions = signal(modelOptionsForServer(
-    modelServerForGateway(this.initialSetup.gatewayBaseUrl),
+    this.initialSetup.activeServerId === DEFAULT_SERVER_ID ? 'default' : 'custom',
     this.initialSetup.customModels,
   ));
   protected readonly gatewayBaseUrl = signal(this.initialSetup.gatewayBaseUrl);
   protected readonly customGatewayBaseUrl = signal(this.initialSetup.customGatewayBaseUrl);
+  protected readonly customServerName = signal('');
   protected readonly apiKey = signal(this.initialSetup.apiKey);
   protected readonly customModelsText = signal(this.initialSetup.customModels.join('\n'));
+  protected readonly serverDetailModel = signal('');
+  protected readonly serverDetailModelOptions = signal(modelOptionsForServer('custom', []));
   protected readonly setupMessage = signal('');
   protected readonly shareMessage = signal('');
   protected readonly messageActionFeedback = signal<Record<number, MessageActionFeedback>>({});
@@ -258,10 +267,24 @@ export class App implements OnDestroy {
     }
 
     setRuntimeApiBaseUrl(this.initialSetup.gatewayBaseUrl);
+    if (this.activeTab() === 'server-detail') {
+      const serverId = this.settingsServerId();
+      if (serverId && this.customServers().some((server) => server.id === serverId)) {
+        this.openServerDetail(serverId);
+      } else {
+        this.navigateToServerList();
+      }
+    }
     if (this.initialSharedConversationId) {
       void this.loadSharedConversation(this.initialSharedConversationId);
     }
-    void this.checkHealth();
+    if (this.activeTab() === 'servers') {
+      void this.checkAllServerHealth();
+    } else if (this.activeTab() === 'server-detail') {
+      void this.checkServerDetailHealth();
+    } else {
+      void this.checkHealth();
+    }
   }
 
   ngOnDestroy(): void {
@@ -420,6 +443,25 @@ export class App implements OnDestroy {
   @HostListener('window:scroll')
   protected onWindowScroll(): void {
     savePageScrollPosition();
+  }
+
+  @HostListener('window:popstate')
+  protected onPopState(): void {
+    const route = readSettingsRoute(globalThis.location?.pathname ?? '');
+    if (route?.page === 'server-detail' && this.customServers().some((server) => server.id === route.serverId)) {
+      this.openServerDetail(route.serverId);
+      return;
+    }
+    if (route?.page === 'servers') {
+      this.settingsServerId.set(null);
+      this.activeTab.set('servers');
+      this.voiceInput.stop();
+      return;
+    }
+
+    this.settingsServerId.set(null);
+    this.activeTab.set('chat');
+    this.focusComposer();
   }
 
   protected toggleTheme(): void {
@@ -683,22 +725,16 @@ export class App implements OnDestroy {
 
   protected selectTab(tab: ActiveTab): void {
     this.serverMenuOpen.set(false);
-    this.activeTab.set(tab);
     if (tab === 'chat') {
+      this.navigateToChat();
       this.focusComposer();
     } else {
-      this.voiceInput.stop();
+      this.navigateToServerList();
     }
   }
 
   protected toggleCustomize(): void {
-    this.serverMenuOpen.set(false);
-    this.activeTab.set(this.activeTab() === 'setup' ? 'chat' : 'setup');
-    if (this.activeTab() === 'chat') {
-      this.focusComposer();
-    } else {
-      this.voiceInput.stop();
-    }
+    this.openServerSettings();
   }
 
   protected toggleServerMenu(): void {
@@ -715,46 +751,23 @@ export class App implements OnDestroy {
   }
 
   protected isUsingDefaultServer(): boolean {
-    return this.isDefaultGatewayUrl(this.gatewayBaseUrl());
+    return this.activeServerId() === DEFAULT_SERVER_ID;
   }
 
   protected hasCustomServer(): boolean {
-    return !this.isDefaultGatewayUrl(this.customGatewayBaseUrl());
+    return this.customServers().length > 0;
   }
 
   protected customServerLabel(): string {
-    const activeGateway = this.gatewayBaseUrl().trim();
-    const value = (this.isDefaultGatewayUrl(activeGateway) ? this.customGatewayBaseUrl() : activeGateway).trim();
-    if (!value || this.isDefaultGatewayUrl(value)) {
-      return 'Chưa cấu hình';
-    }
-
-    try {
-      const url = new URL(value, globalThis.location?.origin ?? 'http://localhost');
-      return `${url.host}${url.pathname === '/' ? '' : url.pathname}`;
-    } catch {
-      return value;
-    }
+    return this.serverDisplayLabel(this.customServers()[0]?.id ?? 'custom-1');
   }
 
   protected selectedEndpointLabel(): string {
-    return this.absoluteEndpointLabel(this.modelEndpoint());
+    return this.serverDisplayLabel(this.activeServerId());
   }
 
-  protected serverEndpointLabel(server: ModelServer): string {
-    if (server === 'default') {
-      return this.absoluteEndpointLabel('/api/v1/chat/completions');
-    }
-
-    const base = normalizeGatewayBaseUrl(this.customGatewayBaseUrl());
-    if (!base) {
-      return 'Chưa cấu hình';
-    }
-
-    const endpoint = base.endsWith('/v1')
-      ? `${base}/chat/completions`
-      : `${base}/v1/chat/completions`;
-    return this.absoluteEndpointLabel(endpoint);
+  protected serverEndpointLabel(serverId: string): string {
+    return this.serverEndpoint(serverId);
   }
 
   private absoluteEndpointLabel(endpoint: string): string {
@@ -766,41 +779,155 @@ export class App implements OnDestroy {
     }
   }
 
-  protected serverHealthState(server: ModelServer): HealthState {
-    return this.serverHealth()[server];
+  protected serverHealthState(serverId: string): HealthState {
+    return this.serverHealth()[serverId] ?? 'unconfigured';
   }
 
-  protected switchServer(choice: ServerChoice): void {
-    const currentGateway = this.gatewayBaseUrl().trim();
-    const rememberedCustom = this.customGatewayBaseUrl().trim();
-    const customGateway = this.isDefaultGatewayUrl(currentGateway)
-      ? rememberedCustom
-      : currentGateway;
-    const normalizedCustomGateway = normalizeGatewayBaseUrl(customGateway);
-
-    if (choice === 'custom' && this.isDefaultGatewayUrl(normalizedCustomGateway)) {
-      this.openCustomizeFromServerMenu();
-      this.setupMessage.set('Base URL tùy chỉnh chưa hợp lệ. Kiểm tra lại trong Customize.');
+  protected switchServer(serverId: string): void {
+    const resolvedServerId = serverId === 'custom' ? this.customServers()[0]?.id ?? serverId : serverId;
+    const server = this.serverProfiles().find((profile) => profile.id === resolvedServerId);
+    if (!server) {
       return;
     }
 
-    this.applySetupSettings(
-      saveSetupSettings({
-        gatewayBaseUrl: choice === 'default' ? '' : normalizedCustomGateway,
-        customGatewayBaseUrl: normalizedCustomGateway,
-        apiKey: this.apiKey(),
-        customModels: this.customModelsText(),
-        selectedModel: this.model(),
-      }),
-      choice === 'default' ? 'Đã chuyển sang server gốc.' : 'Đã chuyển sang server tùy chỉnh.',
-    );
+    if (server.id !== DEFAULT_SERVER_ID && !server.baseUrl) {
+      this.openServerDetail(server.id);
+      this.setupMessage.set('Hãy nhập Base URL trước khi sử dụng server này.');
+      return;
+    }
+
+    this.applySetupSettings(this.settingsForServer(server.id), `Đã chuyển sang ${this.serverDisplayLabel(server.id)}.`);
     this.serverMenuOpen.set(false);
   }
 
   protected openCustomizeFromServerMenu(): void {
+    this.openServerSettings();
+  }
+
+  protected openServerSettings(): void {
     this.serverMenuOpen.set(false);
-    this.activeTab.set('setup');
+    this.navigateToServerList();
+  }
+
+  protected openServerDetail(serverId: string): void {
+    if (serverId === DEFAULT_SERVER_ID) {
+      this.navigateToServerList();
+      return;
+    }
+
+    if (!this.customServers().some((server) => server.id === serverId)) {
+      return;
+    }
+
+    this.serverMenuOpen.set(false);
+    const profile = this.customServers().find((server) => server.id === serverId);
+    if (!profile) {
+      return;
+    }
+    this.customServerName.set(profile.name);
+    this.gatewayBaseUrl.set(profile.baseUrl);
+    this.customGatewayBaseUrl.set(profile.baseUrl);
+    this.apiKey.set(profile.apiKey);
+    this.customModelsText.set(profile.models.join('\n'));
+    this.serverDetailModelOptions.set(modelOptionsForServer('custom', profile.models));
+    this.serverDetailModel.set(profile.selectedModel || this.serverDetailModelOptions()[0]?.route || '');
+    this.settingsServerId.set(serverId);
+    this.activeTab.set('server-detail');
     this.voiceInput.stop();
+    this.pushSettingsUrl({ page: 'server-detail', serverId });
+  }
+
+  protected openNewServer(): void {
+    const serverId = this.nextCustomServerId();
+    this.customServers.update((servers) => [...servers, createCustomServerProfile(serverId)]);
+    this.serverHealth.update((states) => ({ ...states, [serverId]: 'unconfigured' }));
+    this.openServerDetail(serverId);
+  }
+
+  protected serverProfileForSettings(): ServerProfile | null {
+    const id = this.settingsServerId();
+    return id ? this.customServers().find((server) => server.id === id) ?? null : null;
+  }
+
+  protected updateServerName(name: string): void {
+    this.customServerName.set(name);
+  }
+
+  protected updateServerBaseUrl(baseUrl: string): void {
+    this.gatewayBaseUrl.set(baseUrl);
+  }
+
+  protected updateServerApiKey(apiKey: string): void {
+    this.apiKey.set(apiKey);
+  }
+
+  protected updateServerModels(models: string): void {
+    this.customModelsText.set(models);
+    this.serverDetailModelOptions.set(modelOptionsForServer('custom', normalizeServerModels(models)));
+    if (!this.serverDetailModelOptions().some((option) => option.route === this.serverDetailModel())) {
+      this.serverDetailModel.set(this.serverDetailModelOptions()[0]?.route ?? '');
+    }
+  }
+
+  protected updateServerSelectedModel(selectedModel: string): void {
+    this.serverDetailModel.set(selectedModel);
+  }
+
+  protected saveServerProfile(): void {
+    const profile = this.serverProfileForSettings();
+    if (!profile) {
+      return;
+    }
+    const models = normalizeServerModels(this.customModelsText());
+    const normalized = {
+      ...profile,
+      name: this.customServerName().trim() || 'Server tùy chỉnh',
+      baseUrl: normalizeServerBaseUrl(this.gatewayBaseUrl()),
+      apiKey: this.apiKey().trim(),
+      models,
+      selectedModel: models.includes(this.serverDetailModel()) ? this.serverDetailModel() : models[0] ?? '',
+    };
+    if (!normalized.baseUrl) {
+      this.setupMessage.set('Base URL không hợp lệ. Hãy nhập địa chỉ http hoặc https.');
+      return;
+    }
+
+    const updatedServers = this.customServers().map((server) => server.id === normalized.id ? normalized : server);
+    const activeProfile = updatedServers.find((server) => server.id === this.activeServerId());
+    const saved = saveSetupSettings({
+      gatewayBaseUrl: this.activeServerId() === DEFAULT_SERVER_ID ? '' : activeProfile?.baseUrl ?? '',
+      customGatewayBaseUrl: updatedServers[0]?.baseUrl ?? '',
+      apiKey: activeProfile?.apiKey ?? '',
+      customModels: activeProfile?.models ?? [],
+      selectedModel: activeProfile?.selectedModel ?? DEFAULT_SERVER_PROFILE.selectedModel,
+      activeServerId: this.activeServerId(),
+      customServers: updatedServers,
+    });
+    this.applySetupSettings(saved, 'Đã lưu server.');
+    this.openServerSettings();
+  }
+
+  protected deleteServerProfile(): void {
+    const profile = this.serverProfileForSettings();
+    if (!profile) {
+      return;
+    }
+
+    this.customServers.update((servers) => servers.filter((server) => server.id !== profile.id));
+    this.serverHealth.update((states) => {
+      const next = { ...states };
+      delete next[profile.id];
+      return next;
+    });
+    const nextActiveServerId = this.activeServerId() === profile.id ? DEFAULT_SERVER_ID : this.activeServerId();
+    const saved = this.settingsForServer(nextActiveServerId);
+    this.applySetupSettings(
+      saved,
+      nextActiveServerId === DEFAULT_SERVER_ID && this.activeServerId() === profile.id
+        ? 'Đã xóa server và chuyển về server mặc định.'
+        : 'Đã xóa server.',
+    );
+    this.openServerSettings();
   }
 
   protected async copyAssistantMessage(messageId: number): Promise<void> {
@@ -1077,28 +1204,26 @@ export class App implements OnDestroy {
   }
 
   protected saveSetup(): void {
-    const currentGateway = this.gatewayBaseUrl().trim();
-    const saved = saveSetupSettings({
-      gatewayBaseUrl: currentGateway,
-      customGatewayBaseUrl: this.isDefaultGatewayUrl(currentGateway)
-        ? this.customGatewayBaseUrl()
-        : currentGateway,
-      apiKey: this.apiKey(),
-      customModels: this.customModelsText(),
-      selectedModel: this.model(),
-    });
-
-    this.applySetupSettings(saved, 'Đã lưu tùy chỉnh trên thiết bị này.');
+    this.saveServerProfile();
   }
 
   protected resetSetup(): void {
-    const defaults = saveSetupSettings(DEFAULT_SETUP_SETTINGS);
-    this.applySetupSettings(defaults, 'Đã khôi phục tùy chỉnh mặc định.');
+    const profile = this.serverProfileForSettings();
+    if (!profile) {
+      return;
+    }
+    this.customServerName.set(profile.name);
+    this.gatewayBaseUrl.set(profile.baseUrl);
+    this.customGatewayBaseUrl.set(profile.baseUrl);
+    this.apiKey.set(profile.apiKey);
+    this.customModelsText.set(profile.models.join('\n'));
+    this.serverDetailModelOptions.set(modelOptionsForServer('custom', profile.models));
+    this.serverDetailModel.set(profile.selectedModel || this.serverDetailModelOptions()[0]?.route || '');
+    this.setupMessage.set('Đã khôi phục biểu mẫu về cấu hình đã lưu.');
   }
 
   protected saveSetupAndOpenChat(): void {
-    this.saveSetup();
-    this.selectTab('chat');
+    this.saveServerProfile();
   }
 
   protected renderMarkdown(content: string): string {
@@ -1110,7 +1235,11 @@ export class App implements OnDestroy {
   }
 
   protected modelEndpoint(): string {
-    return apiUrl('/v1/chat/completions');
+    return this.serverEndpoint(this.activeServerId());
+  }
+
+  protected serverDetailEndpoint(): string {
+    return this.serverEndpoint(this.settingsServerId() ?? '');
   }
 
   protected selectedModelCapabilitySummary(): string {
@@ -1146,31 +1275,42 @@ export class App implements OnDestroy {
       return;
     }
 
-    await this.checkHealthForServer(this.selectedServer());
+    await this.checkHealthForServer(this.activeServerId());
+  }
+
+  protected async checkServerDetailHealth(): Promise<void> {
+    const serverId = this.settingsServerId();
+    if (serverId) {
+      await this.checkHealthForServer(serverId);
+    }
   }
 
   private async checkAllServerHealth(): Promise<void> {
-    await Promise.allSettled([
-      this.checkHealthForServer('default'),
-      ...(this.hasCustomServer() ? [this.checkHealthForServer('custom')] : []),
-    ]);
+    await Promise.allSettled(this.serverProfiles().map((server) => this.checkHealthForServer(server.id)));
   }
 
-  private async checkHealthForServer(server: ModelServer): Promise<void> {
-    const baseUrl = server === 'default' ? '' : this.customGatewayBaseUrl();
-    this.serverHealth.update((states) => ({ ...states, [server]: 'checking' }));
-    if (server === this.selectedServer()) {
+  private async checkHealthForServer(serverId: string): Promise<void> {
+    const server = this.serverProfiles().find((profile) => profile.id === serverId);
+    const baseUrl = serverId === DEFAULT_SERVER_ID ? '' : server?.baseUrl ?? '';
+    this.serverHealth.update((states) => ({ ...states, [serverId]: baseUrl || serverId === DEFAULT_SERVER_ID ? 'checking' : 'unconfigured' }));
+    if (serverId === this.activeServerId()) {
       this.health.set('checking');
     }
+    if (!baseUrl && serverId !== DEFAULT_SERVER_ID) {
+      if (serverId === this.activeServerId()) {
+        this.health.set('unconfigured');
+      }
+      return;
+    }
     try {
-      await this.chatUseCases.health(new AbortController().signal, baseUrl);
-      this.serverHealth.update((states) => ({ ...states, [server]: 'online' }));
-      if (server === this.selectedServer()) {
+      await this.chatUseCases.health(new AbortController().signal, baseUrl, server?.apiKey ?? '');
+      this.serverHealth.update((states) => ({ ...states, [serverId]: 'online' }));
+      if (serverId === this.activeServerId()) {
         this.health.set('online');
       }
     } catch {
-      this.serverHealth.update((states) => ({ ...states, [server]: 'offline' }));
-      if (server === this.selectedServer()) {
+      this.serverHealth.update((states) => ({ ...states, [serverId]: 'offline' }));
+      if (serverId === this.activeServerId()) {
         this.health.set('offline');
       }
     }
@@ -1280,8 +1420,8 @@ export class App implements OnDestroy {
     }
   }
 
-  protected serverHealthLabel(server: ModelServer): string {
-    switch (this.serverHealth()[server]) {
+  protected serverHealthLabel(serverId: string): string {
+    switch (this.serverHealth()[serverId]) {
       case 'online':
         return 'Online';
       case 'offline':
@@ -1430,6 +1570,16 @@ export class App implements OnDestroy {
       globalThis.history?.replaceState(null, '', url);
     } catch {
       // Updating the address bar is optional; the copied/shared URL remains valid.
+    }
+  }
+
+  private pushSettingsUrl(route: SettingsRoute): void {
+    try {
+      if (globalThis.location?.pathname !== settingsRouteUrl(route)) {
+        globalThis.history?.pushState(null, '', settingsRouteUrl(route));
+      }
+    } catch {
+      // Settings navigation remains available through in-memory state.
     }
   }
 
@@ -1857,19 +2007,109 @@ export class App implements OnDestroy {
     this.customGatewayBaseUrl.set(settings.customGatewayBaseUrl);
     this.apiKey.set(settings.apiKey);
     this.customModelsText.set(settings.customModels.join('\n'));
-    this.modelOptions.set(modelOptionsForServer(this.selectedServer(), settings.customModels));
-    this.model.set(resolveModelForServer(this.selectedServer(), settings.selectedModel, settings.customModels)?.route ?? '');
+    this.customServers.set(settings.customServers);
+    this.activeServerId.set(settings.activeServerId);
+    this.serverHealth.update((states) => ({
+      ...states,
+      ...Object.fromEntries(settings.customServers.map((server) => [server.id, states[server.id] ?? 'unconfigured'])),
+    }));
+    const modelServer: ModelServer = settings.activeServerId === DEFAULT_SERVER_ID ? 'default' : 'custom';
+    this.modelOptions.set(modelOptionsForServer(modelServer, settings.customModels));
+    this.model.set(resolveModelForServer(modelServer, settings.selectedModel, settings.customModels)?.route ?? '');
     this.setupMessage.set(message);
     void this.checkHealth();
   }
 
-  private isDefaultGatewayUrl(value: string): boolean {
-    const normalized = value.trim().replace(/\/+$/u, '');
-    return normalized === '' || normalized === '/api';
+  private selectedServer(): ModelServer {
+    return this.activeServerId() === DEFAULT_SERVER_ID ? 'default' : 'custom';
   }
 
-  private selectedServer(): ModelServer {
-    return this.isDefaultGatewayUrl(this.gatewayBaseUrl()) ? 'default' : 'custom';
+  protected serverProfiles(): ServerProfile[] {
+    return [DEFAULT_SERVER_PROFILE, ...this.customServers()];
+  }
+
+  protected serverDisplayLabel(serverId: string): string {
+    const profile = this.serverProfiles().find((server) => server.id === serverId);
+    if (!profile) {
+      return 'Server';
+    }
+    if (profile.id === DEFAULT_SERVER_ID) {
+      return this.endpointHost(this.serverEndpoint(DEFAULT_SERVER_ID)) || 'Backend';
+    }
+    return profile.baseUrl ? this.endpointHost(profile.baseUrl) || profile.name : 'Chưa cấu hình';
+  }
+
+  protected serverEndpoint(serverId: string): string {
+    if (serverId === DEFAULT_SERVER_ID) {
+      return this.absoluteEndpointLabel(apiUrl('/v1/chat/completions'));
+    }
+
+    const profile = this.customServers().find((server) => server.id === serverId);
+    if (!profile?.baseUrl) {
+      return 'Chưa cấu hình';
+    }
+
+    const endpoint = profile.baseUrl.endsWith('/v1')
+      ? `${profile.baseUrl}/chat/completions`
+      : `${profile.baseUrl}/v1/chat/completions`;
+    return this.absoluteEndpointLabel(endpoint);
+  }
+
+  private endpointHost(endpoint: string): string {
+    try {
+      return new URL(endpoint, globalThis.location?.origin ?? 'http://localhost').host;
+    } catch {
+      return '';
+    }
+  }
+
+  private settingsForServer(serverId: string, override?: ServerProfile): SetupSettings {
+    const profiles = this.customServers().map((server) => server.id === override?.id ? override : server);
+    const profile = serverId === DEFAULT_SERVER_ID
+      ? DEFAULT_SERVER_PROFILE
+      : profiles.find((server) => server.id === serverId) ?? override;
+    const customServer = profiles[0];
+    return saveSetupSettings({
+      gatewayBaseUrl: serverId === DEFAULT_SERVER_ID ? '' : profile?.baseUrl ?? '',
+      customGatewayBaseUrl: customServer?.baseUrl ?? '',
+      apiKey: profile?.apiKey ?? '',
+      customModels: profile?.models ?? [],
+      selectedModel: profile?.selectedModel ?? DEFAULT_SERVER_PROFILE.selectedModel,
+      activeServerId: serverId,
+      customServers: profiles,
+    });
+  }
+
+  private nextCustomServerId(): string {
+    let ordinal = this.customServers().length + 1;
+    while (this.customServers().some((server) => server.id === `custom-${ordinal}`)) {
+      ordinal += 1;
+    }
+    return `custom-${ordinal}`;
+  }
+
+  private navigateToChat(): void {
+    this.activeTab.set('chat');
+    this.settingsServerId.set(null);
+    this.pushBrowserPath(this.conversations().find((conversation) => conversation.id === this.activeConversationId())?.serverId);
+  }
+
+  private navigateToServerList(): void {
+    this.activeTab.set('servers');
+    this.settingsServerId.set(null);
+    this.voiceInput.stop();
+    this.pushSettingsUrl({ page: 'servers' });
+  }
+
+  private pushBrowserPath(serverId: string | null | undefined): void {
+    const url = serverId ? createConversationUrl(serverId, globalThis.location?.href ?? '') : this.chatRootUrl();
+    try {
+      if (url && globalThis.location?.href !== url) {
+        globalThis.history?.pushState(null, '', url);
+      }
+    } catch {
+      // The in-memory chat state is still valid when History API is unavailable.
+    }
   }
 
   protected isSharedRouteBlocked(): boolean {

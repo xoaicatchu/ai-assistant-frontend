@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const shellStyles = readFileSync(resolve(process.cwd(), 'src/app/presentation/shell/app.css'), 'utf8');
 const globalStyles = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
+const shellTemplate = readFileSync(resolve(process.cwd(), 'src/app/presentation/shell/app.html'), 'utf8');
 
 describe('chat shell visual contract', () => {
   it('keeps assistant messages transparent and reserves the tinted surface for user bubbles', () => {
@@ -35,5 +36,18 @@ describe('chat shell visual contract', () => {
     expect(globalStyles).toMatch(/\.app-shell\.dark-mode \.chat-card,[\s\S]*?background:\s*#162338 !important/);
     expect(globalStyles).toMatch(/\.app-shell\.dark-mode \.setup-field small,[\s\S]*?color:\s*#c4d0e0 !important/);
     expect(globalStyles).toMatch(/\.app-shell:not\(\.dark-mode\) \.setup-field small,[\s\S]*?color:\s*#526176/);
+  });
+
+  it('keeps server settings separate from conversation tabs', () => {
+    expect(shellTemplate).toMatch(/id="servers-panel"/);
+    expect(shellTemplate).toMatch(/openServerSettings\(\)/);
+    expect(shellTemplate).toMatch(/class="settings-nav"/);
+    expect(shellTemplate).not.toContain('Mở Customize để sửa server');
+  });
+
+  it('uses compact server labels and protects server cards on mobile', () => {
+    expect(shellStyles).toMatch(/\.server-button-label\s*\{[\s\S]*?text-overflow:\s*ellipsis/);
+    expect(shellStyles).toMatch(/\.server-profile-card,\s*\.server-list-empty\s*\{[\s\S]*?border-radius:\s*15px/);
+    expect(shellStyles).toMatch(/\.server-profile-card,\s*\.server-list-empty\s*\{[\s\S]*?flex-direction:\s*column/);
   });
 });

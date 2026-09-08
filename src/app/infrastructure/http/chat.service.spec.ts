@@ -225,4 +225,24 @@ describe('ChatService streaming', () => {
     setRuntimeApiBaseUrl('');
     vi.unstubAllGlobals();
   });
+
+  it('uses the profile API key supplied for a server health check', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn(() => JSON.stringify({ apiKey: 'active-server-key' })),
+      setItem: vi.fn(),
+    });
+
+    await new ChatService().health(
+      new AbortController().signal,
+      'https://custom.example/v1',
+      'custom-server-key',
+    );
+
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({
+      Authorization: 'Bearer custom-server-key',
+    });
+    vi.unstubAllGlobals();
+  });
 });

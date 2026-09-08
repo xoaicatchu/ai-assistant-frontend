@@ -113,14 +113,14 @@ export class ChatService {
     }
   }
 
-  async health(signal: AbortSignal, baseUrl?: string): Promise<void> {
+  async health(signal: AbortSignal, baseUrl?: string, apiKey?: string): Promise<void> {
     const normalizedBaseUrl = baseUrl === undefined ? null : normalizeGatewayBaseUrl(baseUrl);
     const healthUrl = normalizedBaseUrl === null
       ? apiUrl('/health')
       : `${normalizedBaseUrl || '/api'}/health`;
     const response = await fetch(healthUrl, {
       method: 'GET',
-      headers: this.authHeaders(),
+      headers: this.authHeaders({}, apiKey),
       signal,
     });
     if (!response.ok) {
@@ -130,7 +130,7 @@ export class ChatService {
           : `${normalizedBaseUrl || '/api'}${normalizedBaseUrl?.endsWith('/v1') ? '/models' : '/v1/models'}`;
         const compatibleResponse = await fetch(compatibleUrl, {
           method: 'GET',
-          headers: this.authHeaders(),
+          headers: this.authHeaders({}, apiKey),
           signal,
         });
         if (compatibleResponse.ok) {
@@ -252,8 +252,8 @@ export class ChatService {
     return response;
   }
 
-  private authHeaders(headers: Record<string, string> = {}): Record<string, string> {
-    const apiKey = loadSetupSettings().apiKey;
+  private authHeaders(headers: Record<string, string> = {}, apiKeyOverride?: string): Record<string, string> {
+    const apiKey = apiKeyOverride === undefined ? loadSetupSettings().apiKey : apiKeyOverride.trim();
     return apiKey ? { ...headers, Authorization: `Bearer ${apiKey}` } : headers;
   }
 

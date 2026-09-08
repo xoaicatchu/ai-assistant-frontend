@@ -86,7 +86,8 @@ export function modelOptionsForServer(
     return [...MODEL_OPTIONS];
   }
 
-  return allModelOptions(customModels).filter((option) => !MODEL_OPTIONS.some((builtIn) => builtIn.route === option.route));
+  const configuredRoutes = new Set(customModels.map((route) => route.trim()).filter(Boolean));
+  return allModelOptions(customModels).filter((option) => configuredRoutes.has(option.route));
 }
 
 export function resolveModelForServer(

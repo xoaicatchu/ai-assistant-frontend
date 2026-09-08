@@ -945,3 +945,67 @@ h3 {
 .app-shell:not(.dark-mode) .eyebrow {
   color: #526176;
 }
+
+.app-shell.dark-mode .settings-nav,
+.app-shell.dark-mode .server-profile-card,
+.app-shell.dark-mode .server-list-empty,
+.app-shell.dark-mode .settings-feedback {
+  border-color: #30415b !important;
+}
+
+.app-shell.dark-mode .settings-nav-title strong,
+.app-shell.dark-mode .settings-page-heading h2,
+.app-shell.dark-mode .server-profile-title-row h3,
+.app-shell.dark-mode .server-list-empty strong {
+  color: #f3f6fb !important;
+}
+
+.app-shell.dark-mode .settings-page-heading p:not(.eyebrow),
+.app-shell.dark-mode .server-profile-copy code,
+.app-shell.dark-mode .server-profile-copy small,
+.app-shell.dark-mode .server-list-empty {
+  color: #c4d0e0 !important;
+}
+
+.app-shell.dark-mode .settings-back-button,
+.app-shell.dark-mode .settings-inline-back,
+.app-shell.dark-mode .server-profile-card,
+.app-shell.dark-mode .server-list-empty,
+.app-shell.dark-mode .profile-edit-button {
+  background: #1c2b42 !important;
+}
+
+.app-shell.dark-mode .settings-back-button,
+.app-shell.dark-mode .settings-inline-back,
+.app-shell.dark-mode .profile-edit-button {
+  color: #dbeafe !important;
+}
+
+.app-shell.dark-mode .server-profile-status {
+  color: #c4d0e0 !important;
+  background: #22314a !important;
+}
+
+.app-shell.dark-mode .active-server-card {
+  border-color: #5c8fe6 !important;
+  box-shadow: 0 7px 22px rgba(37, 99, 235, 0.15) !important;
+}
+
+.app-shell.dark-mode .active-server-label,
+.app-shell.dark-mode .settings-feedback {
+  color: #bde6c9 !important;
+  background: #173a2a !important;
+  border-color: #286044 !important;
+}
+
+.app-shell.dark-mode .setup-select {
+  color: #f8fafc !important;
+  background: #1a283d !important;
+  border-color: #49617f !important;
+}
+
+.app-shell.dark-mode .danger-button {
+  color: #fecaca !important;
+  background: #3a2028 !important;
+  border-color: #7f3541 !important;
+}

@@ -35,11 +35,11 @@
           <button
             class="settings-button"
             type="button"
-            [class.active-settings]="serverMenuOpen() || activeTab() === 'setup'"
+            [class.active-settings]="serverMenuOpen() || activeTab() !== 'chat'"
             [attr.aria-expanded]="serverMenuOpen()"
             aria-haspopup="menu"
-            aria-label="Đổi server"
-            title="Đổi server"
+            aria-label="Chọn server hoặc mở thiết lập server"
+            title="Chọn server"
             (click)="toggleServerMenu()"
           >
             <svg lucideSettings2 class="h-4 w-4" aria-hidden="true"></svg>
@@ -64,56 +64,36 @@
           </button>
           @if (serverMenuOpen()) {
             <div class="server-menu" role="menu" aria-label="Chọn server">
-              <div class="server-menu-heading">Server model</div>
-              <button
-                class="server-menu-option"
-                type="button"
-                role="menuitemradio"
-                [attr.aria-checked]="isUsingDefaultServer()"
-                [class.is-selected]="isUsingDefaultServer()"
-                (click)="switchServer('default')"
-              >
-                <span>
-                  <strong>{{ serverEndpointLabel('default') }}</strong>
-                </span>
-                <span
-                  class="server-option-status"
-                  [attr.aria-label]="'Trạng thái server: ' + serverHealthLabel('default')"
-                  [attr.title]="serverHealthLabel('default')"
+              <div class="server-menu-heading">Server đang dùng</div>
+              @for (server of serverProfiles(); track server.id) {
+                <button
+                  class="server-menu-option"
+                  type="button"
+                  role="menuitemradio"
+                  [attr.aria-checked]="activeServerId() === server.id"
+                  [class.is-selected]="activeServerId() === server.id"
+                  (click)="switchServer(server.id)"
                 >
-                  @switch (serverHealthState('default')) {
-                    @case ('online') { <span class="online-dot"></span> }
-                    @case ('offline') { <svg lucideWifiOff class="h-3.5 w-3.5" aria-hidden="true"></svg> }
-                    @default { <svg lucideLoaderCircle class="h-3.5 w-3.5 animate-spin" aria-hidden="true"></svg> }
-                  }
-                </span>
-              </button>
-              <button
-                class="server-menu-option"
-                type="button"
-                role="menuitemradio"
-                [disabled]="!hasCustomServer()"
-                [attr.aria-checked]="!isUsingDefaultServer()"
-                [class.is-selected]="!isUsingDefaultServer()"
-                (click)="switchServer('custom')"
-              >
-                <span>
-                  <strong>{{ serverEndpointLabel('custom') }}</strong>
-                </span>
-                <span
-                  class="server-option-status"
-                  [attr.aria-label]="'Trạng thái server: ' + serverHealthLabel('custom')"
-                  [attr.title]="serverHealthLabel('custom')"
-                >
-                  @switch (serverHealthState('custom')) {
-                    @case ('online') { <span class="online-dot"></span> }
-                    @case ('offline') { <svg lucideWifiOff class="h-3.5 w-3.5" aria-hidden="true"></svg> }
-                    @default { <svg lucideLoaderCircle class="h-3.5 w-3.5 animate-spin" aria-hidden="true"></svg> }
-                  }
-                </span>
-              </button>
-              <button class="server-menu-customize" type="button" (click)="openCustomizeFromServerMenu()">
-                Mở Customize để sửa server
+                  <span
+                    class="server-option-status"
+                    [attr.aria-label]="'Trạng thái server: ' + serverHealthLabel(server.id)"
+                    [attr.title]="serverHealthLabel(server.id)"
+                  >
+                    @switch (serverHealthState(server.id)) {
+                      @case ('online') { <span class="online-dot"></span> }
+                      @case ('offline') { <svg lucideWifiOff class="h-3.5 w-3.5" aria-hidden="true"></svg> }
+                      @default { <svg lucideLoaderCircle class="h-3.5 w-3.5 animate-spin" aria-hidden="true"></svg> }
+                    }
+                  </span>
+                  <span class="server-menu-option-copy">
+                    <strong>{{ server.name }}</strong>
+                    <small>{{ serverDisplayLabel(server.id) }}</small>
+                  </span>
+                </button>
+              }
+              <button class="server-menu-customize" type="button" (click)="openServerSettings()">
+                <svg lucideSettings2 class="h-3.5 w-3.5" aria-hidden="true"></svg>
+                <span>Thiết lập server</span>
               </button>
             </div>
           }
@@ -121,21 +101,22 @@
       </div>
       </div>
 
-      <nav class="tab-bar flex items-center gap-1 px-5 sm:px-7" role="tablist" aria-label="Workspace">
-      <button
-        id="chat-tab"
-        class="tab-button"
-        [class.active-tab]="activeTab() === 'chat'"
-        role="tab"
-        type="button"
-        aria-controls="chat-panel"
-        [attr.aria-selected]="activeTab() === 'chat'"
-        (click)="selectTab('chat')"
-      >
-        <svg lucideMessageCircle class="h-4 w-4" aria-hidden="true"></svg>
-        Chat
-      </button>
-      <div class="conversation-tabs" role="tablist" aria-label="Các cuộc trò chuyện">
+      @if (activeTab() === 'chat') {
+        <nav class="tab-bar flex items-center gap-1 px-5 sm:px-7" role="tablist" aria-label="Workspace">
+        <button
+          id="chat-tab"
+          class="tab-button"
+          [class.active-tab]="activeTab() === 'chat'"
+          role="tab"
+          type="button"
+          aria-controls="chat-panel"
+          [attr.aria-selected]="activeTab() === 'chat'"
+          (click)="selectTab('chat')"
+        >
+          <svg lucideMessageCircle class="h-4 w-4" aria-hidden="true"></svg>
+          Chat
+        </button>
+        <div class="conversation-tabs" role="tablist" aria-label="Các cuộc trò chuyện">
         @for (conversation of conversations(); track conversation.id) {
           <div
             class="conversation-tab"
@@ -175,8 +156,20 @@
             <span class="sr-only">Cuộc trò chuyện mới</span>
           </button>
         }
-      </div>
-      </nav>
+        </div>
+        </nav>
+      } @else {
+        <nav class="settings-nav" aria-label="Thiết lập server">
+          <button class="settings-back-button" type="button" (click)="selectTab('chat')">
+            <span aria-hidden="true">←</span>
+            <span>Chat</span>
+          </button>
+          <div class="settings-nav-title">
+            <span class="eyebrow">SERVER SETTINGS</span>
+            <strong>{{ activeTab() === 'servers' ? 'Danh sách server' : 'Chi tiết server' }}</strong>
+          </div>
+        </nav>
+      }
     </header>
 
     @if (activeTab() === 'chat') {
@@ -446,20 +439,108 @@
           </div>
         </form>
       </footer>
+    } @else if (activeTab() === 'servers') {
+      <section id="servers-panel" class="server-settings-page" role="tabpanel" aria-label="Danh sách server">
+        <div class="settings-page-heading">
+          <div>
+            <p class="eyebrow">SERVER SETTINGS</p>
+            <h2>Server của bạn</h2>
+            <p>Chọn gateway cho cuộc trò chuyện hoặc mở một server để chỉnh model và quyền truy cập.</p>
+          </div>
+          <button class="primary-button add-server-button" type="button" (click)="openNewServer()">
+            <svg lucidePlus class="h-4 w-4" aria-hidden="true"></svg>
+            Thêm server
+          </button>
+        </div>
+
+        @if (setupMessage()) {
+          <div class="settings-feedback" role="status">{{ setupMessage() }}</div>
+        }
+
+        <div class="server-list" aria-label="Các server">
+          @for (server of serverProfiles(); track server.id) {
+            <article class="server-profile-card" [class.active-server-card]="activeServerId() === server.id">
+              <div class="server-profile-main">
+                <span
+                  class="server-profile-status"
+                  [attr.aria-label]="'Trạng thái: ' + serverHealthLabel(server.id)"
+                  [attr.title]="serverHealthLabel(server.id)"
+                >
+                  @switch (serverHealthState(server.id)) {
+                    @case ('online') { <span class="online-dot"></span> }
+                    @case ('offline') { <svg lucideWifiOff class="h-4 w-4" aria-hidden="true"></svg> }
+                    @default { <svg lucideLoaderCircle class="h-4 w-4 animate-spin" aria-hidden="true"></svg> }
+                  }
+                </span>
+                <div class="server-profile-copy">
+                  <div class="server-profile-title-row">
+                    <h3>{{ server.name }}</h3>
+                    @if (activeServerId() === server.id) {
+                      <span class="active-server-label">Đang dùng</span>
+                    }
+                  </div>
+                  <code>{{ serverDisplayLabel(server.id) }}</code>
+                  <small>{{ server.models.length }} model · {{ serverHealthLabel(server.id) }}</small>
+                </div>
+              </div>
+              <div class="server-profile-actions">
+                <button
+                  class="secondary-button"
+                  type="button"
+                  [disabled]="server.id !== 'default' && !server.baseUrl"
+                  (click)="switchServer(server.id)"
+                >
+                  {{ activeServerId() === server.id ? 'Đang dùng' : 'Sử dụng' }}
+                </button>
+                @if (!server.readOnly) {
+                  <button class="icon-button profile-edit-button" type="button" (click)="openServerDetail(server.id)" aria-label="Chỉnh sửa server" title="Chỉnh sửa server">
+                    <svg lucidePencil class="h-4 w-4" aria-hidden="true"></svg>
+                  </button>
+                }
+              </div>
+            </article>
+          }
+
+          @if (customServers().length === 0) {
+            <div class="server-list-empty">
+              <svg lucideServer class="h-5 w-5" aria-hidden="true"></svg>
+              <div>
+                <strong>Chưa có server tùy chỉnh</strong>
+                <p>Thêm một gateway riêng để dùng model từ 9Router hoặc endpoint OpenAI-compatible.</p>
+              </div>
+            </div>
+          }
+        </div>
+      </section>
     } @else {
-      <section id="setup-panel" class="setup-panel" role="tabpanel" aria-labelledby="customize-button">
+      <section id="setup-panel" class="setup-panel" role="tabpanel" aria-label="Chi tiết server">
         <div class="setup-heading">
-          <p class="eyebrow">WORKSPACE CUSTOMIZE</p>
-          <h2>Tùy chỉnh phiên chat</h2>
-          <p>Backend của ứng dụng đã được cấu hình sẵn. Chỉ dùng phần này khi muốn trỏ request model sang endpoint khác.</p>
+          <button class="settings-inline-back" type="button" (click)="openServerSettings()">
+            <span aria-hidden="true">←</span>
+            <span>Danh sách server</span>
+          </button>
+          <p class="eyebrow">SERVER DETAIL</p>
+          <h2>Chỉnh server</h2>
+          <p>Cấu hình endpoint, model và capability cho server này. Thông tin được lưu riêng trên thiết bị.</p>
         </div>
 
         <div class="setup-grid">
           <label class="setup-field setup-field-wide">
-            <span>Custom model Base URL</span>
+            <span>Tên server</span>
+            <input
+              [ngModel]="customServerName()"
+              (ngModelChange)="updateServerName($event)"
+              [disabled]="busy()"
+              autocomplete="off"
+              placeholder="Ví dụ: 9Router local"
+              aria-label="Tên server"
+            />
+          </label>
+          <label class="setup-field setup-field-wide">
+            <span>Base URL của model gateway</span>
             <input
               [ngModel]="gatewayBaseUrl()"
-              (ngModelChange)="gatewayBaseUrl.set($event)"
+              (ngModelChange)="updateServerBaseUrl($event)"
               [disabled]="busy()"
               autocomplete="off"
               spellcheck="false"
@@ -480,11 +561,11 @@
           </label>
 
           <label class="setup-field setup-field-wide">
-            <span>API Key cho model endpoint</span>
+            <span>API key</span>
             <input
               type="password"
               [ngModel]="apiKey()"
-              (ngModelChange)="apiKey.set($event)"
+              (ngModelChange)="updateServerApiKey($event)"
               [disabled]="busy()"
               autocomplete="off"
               spellcheck="false"
@@ -495,10 +576,10 @@
           </label>
 
           <label class="setup-field setup-field-wide">
-            <span>Custom model routes</span>
+            <span>Model routes</span>
             <textarea
               [ngModel]="customModelsText()"
-              (ngModelChange)="customModelsText.set($event)"
+              (ngModelChange)="updateServerModels($event)"
               [disabled]="busy()"
               rows="3"
               autocomplete="off"
@@ -506,7 +587,23 @@
               placeholder="anthropic:claude-sonnet-4-5&#10;openai:gpt-4o-mini"
               aria-label="Custom model routes"
             ></textarea>
-            <small>Mỗi route một dòng. Các route này chỉ hiện khi bạn chọn Server tùy chỉnh.</small>
+            <small>Mỗi route một dòng. Các route này chỉ được dùng khi chọn server này.</small>
+          </label>
+
+          <label class="setup-field setup-field-wide">
+            <span>Model mặc định</span>
+            <select
+              class="setup-select"
+              [ngModel]="serverDetailModel()"
+              (ngModelChange)="updateServerSelectedModel($event)"
+              [disabled]="busy() || serverDetailModelOptions().length === 0"
+              name="server-default-model"
+              aria-label="Model mặc định của server"
+            >
+              @for (option of serverDetailModelOptions(); track option.route) {
+                <option [value]="option.route">{{ option.label }}</option>
+              }
+            </select>
           </label>
 
         </div>
@@ -524,7 +621,7 @@
             </div>
           </div>
           <div class="capability-list">
-            @for (option of modelOptions(); track option.route) {
+            @for (option of serverDetailModelOptions(); track option.route) {
               <div class="capability-row">
                 <div class="capability-model">
                   <strong>{{ option.label }}</strong>
@@ -560,16 +657,16 @@
           <summary class="mcp-help-summary">
             <span class="mcp-help-icon" aria-hidden="true">🔌</span>
             <span class="mcp-help-title">
-              <strong>Hướng dẫn tích hợp MCP</strong>
-              <small>Kết nối MCP server qua gateway và dùng tool trong cuộc trò chuyện</small>
+              <strong>MCP cho server này</strong>
+              <small>Chỉ dùng khi gateway này đã expose MCP tool qua OpenAI-compatible API</small>
             </span>
             <span class="mcp-help-chevron" aria-hidden="true">⌄</span>
           </summary>
 
           <div class="mcp-help-body">
             <p class="mcp-help-note">
-              Customize hiện không chạy MCP server trực tiếp trong trình duyệt. MCP cần được cấu hình ở
-              9Router/backend, sau đó gateway chuyển tool call tới model.
+              MCP không chạy trực tiếp trong trình duyệt. Hãy cấu hình MCP ở gateway của server này,
+              sau đó gateway chuyển tool call tới model.
             </p>
             <ol class="mcp-help-steps">
               <li>Chạy MCP server của bạn bằng <code>stdio</code> hoặc HTTP/SSE ở 9Router.</li>
@@ -592,18 +689,18 @@
           <div class="connection-card-header">
             <div class="connection-card-heading">
               <span class="mini-icon grid place-items-center" aria-hidden="true">
-                <svg lucideServer class="h-4 w-4" aria-hidden="true"></svg>
+              <svg lucideServer class="h-4 w-4" aria-hidden="true"></svg>
               </span>
               <div>
                 <p class="eyebrow">GATEWAY CONNECTION</p>
-                <h3>{{ healthLabel() }}</h3>
+                <h3>{{ serverHealthLabel(settingsServerId() ?? '') }}</h3>
               </div>
             </div>
             <button
               class="secondary-button"
               type="button"
-              (click)="checkHealth()"
-              [disabled]="health() === 'checking'"
+              (click)="checkServerDetailHealth()"
+              [disabled]="serverHealthState(settingsServerId() ?? '') === 'checking'"
             >
               <svg lucideRefreshCw class="h-3.5 w-3.5" aria-hidden="true"></svg>
               Kiểm tra
@@ -612,15 +709,15 @@
           <div class="endpoint-list">
             <div class="endpoint-line">
               <span>Backend endpoint</span>
-              <code>{{ modelEndpoint() }}</code>
+              <code>{{ serverDetailEndpoint() }}</code>
             </div>
           </div>
         </div>
 
-        @if (health() === 'unconfigured') {
+        @if (serverHealthState(settingsServerId() ?? '') === 'unconfigured' && !gatewayBaseUrl().trim()) {
           <div class="setup-warning" role="alert">
-            <strong>Backend chưa được cấu hình.</strong>
-            Kiểm tra Vercel Services và cấu hình backend container.
+            <strong>Server chưa được cấu hình.</strong>
+            Nhập Base URL rồi lưu để có thể sử dụng server này.
           </div>
         }
 
@@ -631,13 +728,17 @@
             }
             <button class="secondary-button reset-button" type="button" (click)="resetSetup()">
               <svg lucideRefreshCw class="h-3.5 w-3.5" aria-hidden="true"></svg>
-              Khôi phục mặc định
+              Hoàn tác thay đổi
+            </button>
+            <button class="danger-button" type="button" (click)="deleteServerProfile()">
+              <svg lucideX class="h-3.5 w-3.5" aria-hidden="true"></svg>
+              Xóa server
             </button>
           </div>
-          <button class="primary-button" type="button" (click)="saveSetupAndOpenChat()">
-            <svg lucideShieldCheck class="h-4 w-4" aria-hidden="true"></svg>
-            Lưu tùy chỉnh và mở Chat
-          </button>
+            <button class="primary-button" type="button" (click)="saveSetupAndOpenChat()">
+              <svg lucideShieldCheck class="h-4 w-4" aria-hidden="true"></svg>
+            Lưu server
+            </button>
         </div>
       </section>
     }

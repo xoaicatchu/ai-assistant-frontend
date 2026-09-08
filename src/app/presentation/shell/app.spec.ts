@@ -328,13 +328,97 @@ describe('App message submission', () => {
     expect((app as any).brandLabel).toBe('MEDICAL HARNESS FRAMEWORK');
   });
 
-  it('shows the active chat endpoint instead of a generic server label', () => {
+  it('shows a compact server host in the header while keeping the full endpoint available', () => {
     vi.stubGlobal('location', { origin: 'https://example.com', pathname: '/' });
     vi.stubGlobal('localStorage', { getItem: vi.fn(() => null), setItem: vi.fn() });
     const app = new App({ health: vi.fn().mockResolvedValue(undefined) } as unknown as ChatService);
 
-    expect((app as any).selectedEndpointLabel()).toBe('https://example.com/api/v1/chat/completions');
+    expect((app as any).selectedEndpointLabel()).toBe('example.com');
     expect((app as any).serverEndpointLabel('default')).toBe('https://example.com/api/v1/chat/completions');
+  });
+
+  it('loads a server detail route without changing the active chat model', () => {
+    vi.stubGlobal('location', {
+      origin: 'https://example.com',
+      pathname: '/settings/servers/custom-2',
+      href: 'https://example.com/settings/servers/custom-2',
+    });
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn(() => JSON.stringify({
+        activeServerId: 'default',
+        selectedModel: 'deepseek/deepseek-v4-flash',
+        customServers: [{
+          id: 'custom-2',
+          name: 'Local gateway',
+          baseUrl: 'http://127.0.0.1:8045/v1',
+          models: ['local/model'],
+          selectedModel: 'local/model',
+        }],
+      })),
+      setItem: vi.fn(),
+    });
+    const app = new App({ health: vi.fn().mockResolvedValue(undefined) } as unknown as ChatService);
+
+    expect((app as any).activeTab()).toBe('server-detail');
+    expect((app as any).serverDetailModel()).toBe('local/model');
+    expect((app as any).model()).toBe('deepseek/deepseek-v4-flash');
+    expect((app as any).modelOptions().some((option: { route: string }) => option.route === 'local/model')).toBe(false);
+  });
+
+  it('persists deleting an inactive custom server', () => {
+    const setItem = vi.fn();
+    vi.stubGlobal('location', {
+      origin: 'https://example.com',
+      pathname: '/settings/servers/custom-2',
+      href: 'https://example.com/settings/servers/custom-2',
+    });
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn(() => JSON.stringify({
+        activeServerId: 'default',
+        customServers: [{
+          id: 'custom-2',
+          name: 'Inactive gateway',
+          baseUrl: 'http://127.0.0.1:8045/v1',
+          models: ['local/model'],
+          selectedModel: 'local/model',
+        }],
+      })),
+      setItem,
+    });
+    const app = new App({ health: vi.fn().mockResolvedValue(undefined) } as unknown as ChatService);
+
+    (app as any).deleteServerProfile();
+
+    const lastSaved = JSON.parse(setItem.mock.calls.at(-1)?.[1] as string) as { activeServerId: string; customServers: unknown[] };
+    expect(lastSaved.activeServerId).toBe('default');
+    expect(lastSaved.customServers).toEqual([]);
+  });
+
+  it('rehydrates the selected server when browser history moves between detail routes', () => {
+    const location = {
+      origin: 'https://example.com',
+      pathname: '/settings/servers/custom-1',
+      href: 'https://example.com/settings/servers/custom-1',
+    };
+    vi.stubGlobal('location', location);
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn(() => JSON.stringify({
+        customServers: [
+          { id: 'custom-1', name: 'One', baseUrl: 'https://one.example/v1', models: ['model/one'], selectedModel: 'model/one' },
+          { id: 'custom-2', name: 'Two', baseUrl: 'https://two.example/v1', models: ['model/two'], selectedModel: 'model/two' },
+        ],
+      })),
+      setItem: vi.fn(),
+    });
+    const app = new App({ health: vi.fn().mockResolvedValue(undefined) } as unknown as ChatService);
+
+    location.pathname = '/settings/servers/custom-2';
+    location.href = 'https://example.com/settings/servers/custom-2';
+    (app as any).onPopState();
+
+    expect((app as any).settingsServerId()).toBe('custom-2');
+    expect((app as any).customServerName()).toBe('Two');
+    expect((app as any).serverDetailEndpoint()).toBe('https://two.example/v1/chat/completions');
   });
 
   it('toggles and saves the dark mode preference', () => {

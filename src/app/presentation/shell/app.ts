@@ -321,6 +321,7 @@ export class App implements OnDestroy {
     this.shareMessage.set('');
     this.updateActiveConversation(content);
     const conversationId = this.activeConversationId();
+    this.ensureLocalConversationId(conversationId);
     this.requestQueue.enqueue({
       conversationId,
       content,
@@ -1758,6 +1759,26 @@ export class App implements OnDestroy {
         this.serverConversationCreates.delete(conversationId);
       }
     }
+  }
+
+  private ensureLocalConversationId(conversationId: number): string | null {
+    const conversation = this.conversations().find((item) => item.id === conversationId);
+    if (!conversation) {
+      return null;
+    }
+    if (conversation.serverId) {
+      return conversation.serverId;
+    }
+
+    const serverId = createOpaqueConversationId();
+    this.conversations.update((conversations) => conversations.map((item) =>
+      item.id === conversationId ? { ...item, serverId } : item,
+    ));
+    this.persistConversations();
+    if (this.activeConversationId() === conversationId) {
+      this.replaceConversationUrl(serverId);
+    }
+    return serverId;
   }
 
   private chatRootUrl(): string {

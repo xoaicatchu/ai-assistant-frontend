@@ -114,6 +114,8 @@ describe('App message submission', () => {
     (app as any).draft.set('Câu hỏi một');
     const first = (app as any).send();
     await vi.waitFor(() => expect(stream).toHaveBeenCalledOnce());
+    const firstServerId = (app as any).conversations()[0].serverId;
+    expect(firstServerId).toMatch(/^[A-Za-z0-9_-]{22}$/u);
 
     (app as any).onModelChange('x-ai/grok-4.6');
     (app as any).draft.set('Câu hỏi hai');
@@ -137,6 +139,7 @@ describe('App message submission', () => {
 
     releases.shift()?.();
     await Promise.all([first, second]);
+    expect((app as any).conversations()[0].serverId).toBe(firstServerId);
     expect((app as any).messages().map((message: { text: string }) => message.text)).toEqual([
       'Câu hỏi một',
       'Trả lời cho Câu hỏi một',
@@ -180,6 +183,35 @@ describe('App message submission', () => {
     expect(createConversation).toHaveBeenCalledOnce();
     expect(updateConversation).toHaveBeenCalledOnce();
     expect((app as any).conversations()[0].serverToken).toBe('owner-token-for-tests');
+  });
+
+  it('allocates a conversation URL on the first message even when server persistence is unavailable', async () => {
+    vi.stubGlobal('requestAnimationFrame', (callback: () => void) => {
+      callback();
+      return 0;
+    });
+    vi.stubGlobal('localStorage', { getItem: vi.fn(() => null), setItem: vi.fn() });
+    const createConversation = vi.fn().mockRejectedValue(new Error('Redis unavailable'));
+    const stream = vi.fn(async (
+      _model: string,
+      _messages: ChatMessage[],
+      _signal: AbortSignal,
+      onDelta: (text: string) => void,
+    ) => onDelta('Câu trả lời vẫn hiển thị'));
+    const app = new App({
+      health: vi.fn().mockResolvedValue(undefined),
+      createConversation,
+      stream,
+    } as unknown as ChatService);
+    const replaceConversationUrl = vi.spyOn(app as any, 'replaceConversationUrl');
+    (app as any).draft.set('Tin nhắn đầu tiên');
+
+    await (app as any).send();
+
+    const serverId = (app as any).conversations()[0].serverId;
+    expect(serverId).toMatch(/^[A-Za-z0-9_-]{22}$/u);
+    expect(replaceConversationUrl).toHaveBeenCalledWith(serverId);
+    expect(stream).toHaveBeenCalledOnce();
   });
 
   it('falls back to a model available on the current server when setup contains a stale model', () => {

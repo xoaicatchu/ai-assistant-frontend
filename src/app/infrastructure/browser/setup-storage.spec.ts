@@ -19,6 +19,8 @@ describe('setup storage', () => {
   it('returns safe defaults when no saved setup exists', () => {
     expect(loadSetupSettings()).toEqual(DEFAULT_SETUP_SETTINGS);
     expect(DEFAULT_SETUP_SETTINGS.selectedModel).toBe('deepseek/deepseek-v4-flash');
+    expect(DEFAULT_SETUP_SETTINGS.activeServerId).toBe('default');
+    expect(DEFAULT_SETUP_SETTINGS.customServers).toEqual([]);
   });
 
   it('normalizes a saved setup and removes duplicate custom routes', () => {
@@ -35,12 +37,17 @@ describe('setup storage', () => {
     };
     vi.stubGlobal('localStorage', storage);
 
-    expect(loadSetupSettings()).toEqual({
+    expect(loadSetupSettings()).toMatchObject({
       gatewayBaseUrl: 'https://api.example.com',
       customGatewayBaseUrl: 'https://api.example.com',
       apiKey: 'sk-test',
       customModels: ['custom/model', 'another:model'],
       selectedModel: 'custom/model',
+    });
+    expect(loadSetupSettings().customServers[0]).toMatchObject({
+      id: 'custom-1',
+      baseUrl: 'https://api.example.com',
+      models: ['custom/model', 'another:model'],
     });
   });
 
@@ -102,6 +109,30 @@ describe('setup storage', () => {
 
     expect(loadSetupSettings().gatewayBaseUrl).toBe('');
     expect(loadSetupSettings().customGatewayBaseUrl).toBe('http://127.0.0.1:8045/v1');
+    expect(loadSetupSettings().customServers).toHaveLength(1);
+    expect(loadSetupSettings().customServers[0].baseUrl).toBe('http://127.0.0.1:8045/v1');
+  });
+
+  it('loads multiple custom servers and preserves the active profile', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn(() => JSON.stringify({
+        activeServerId: 'custom-two',
+        customServers: [
+          { id: 'custom-one', name: 'One', baseUrl: 'http://one.example/v1', models: ['one/model'] },
+          { id: 'custom-two', name: 'Two', baseUrl: 'http://two.example/v1', models: ['two/model'], selectedModel: 'two/model' },
+        ],
+      })),
+      setItem: vi.fn(),
+    });
+
+    expect(loadSetupSettings()).toMatchObject({
+      activeServerId: 'custom-two',
+      gatewayBaseUrl: 'http://two.example/v1',
+      customGatewayBaseUrl: 'http://one.example/v1',
+      customModels: ['two/model'],
+      selectedModel: 'two/model',
+    });
+    expect(loadSetupSettings().customServers.map((server) => server.id)).toEqual(['custom-one', 'custom-two']);
   });
 
   it('normalizes multiline model routes', () => {

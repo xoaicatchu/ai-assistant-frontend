@@ -1,4 +1,13 @@
-import { isRemovedModelRoute, MODEL_OPTIONS } from '../../domain/model/model-picker';
+import { MODEL_OPTIONS } from '../../domain/model/model-picker';
+import {
+  DEFAULT_SERVER_ID,
+  LEGACY_CUSTOM_SERVER_ID,
+  normalizeServerBaseUrl,
+  normalizeServerModels,
+  normalizeServerProfile,
+  type ServerProfile,
+  type ServerProfileInput,
+} from '../../domain/server/server-profile';
 
 const STORAGE_KEY = 'medical-harness-agent.setup.v1';
 const LEGACY_DEFAULT_MODEL = 'x-ai/grok-4.6';
@@ -9,6 +18,8 @@ export interface SetupSettings {
   apiKey: string;
   customModels: string[];
   selectedModel: string;
+  activeServerId: string;
+  customServers: ServerProfile[];
 }
 
 export interface SetupSettingsInput {
@@ -17,6 +28,8 @@ export interface SetupSettingsInput {
   apiKey?: string | null;
   customModels?: string | string[] | null;
   selectedModel?: string | null;
+  activeServerId?: string | null;
+  customServers?: ServerProfileInput[] | null;
 }
 
 export const DEFAULT_SETUP_SETTINGS: SetupSettings = {
@@ -25,43 +38,16 @@ export const DEFAULT_SETUP_SETTINGS: SetupSettings = {
   apiKey: '',
   customModels: [],
   selectedModel: 'deepseek/deepseek-v4-flash',
+  activeServerId: DEFAULT_SERVER_ID,
+  customServers: [],
 };
 
 export function normalizeGatewayBaseUrl(value: string | null | undefined): string {
-  const rawValue = value?.trim() ?? '';
-  if (!rawValue) {
-    return '';
-  }
-
-  if (rawValue.startsWith('/') && !rawValue.startsWith('//')) {
-    return rawValue.replace(/\/+$/u, '') || '/';
-  }
-
-  try {
-    const url = new URL(rawValue);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return '';
-    }
-
-    const path = url.pathname.replace(/\/+$/u, '');
-    return `${url.origin}${path}`;
-  } catch {
-    return '';
-  }
+  return normalizeServerBaseUrl(value);
 }
 
 export function normalizeModelRoutes(value: string | string[] | null | undefined): string[] {
-  const values = Array.isArray(value) ? value : (value ?? '').split(/\r?\n/u);
-  const routes: string[] = [];
-
-  for (const item of values) {
-    const route = item.trim();
-    if (route && !isRemovedModelRoute(route) && !routes.includes(route)) {
-      routes.push(route);
-    }
-  }
-
-  return routes;
+  return normalizeServerModels(value);
 }
 
 export function loadSetupSettings(): SetupSettings {
@@ -97,25 +83,68 @@ export function saveSetupSettings(settings: SetupSettingsInput): SetupSettings {
 }
 
 function normalizeSetup(settings: SetupSettingsInput): SetupSettings {
-  const customModels = normalizeModelRoutes(settings.customModels);
+  const legacyModels = normalizeModelRoutes(settings.customModels);
+  const legacyGateway = normalizeGatewayBaseUrl(settings.customGatewayBaseUrl);
+  const legacyApiKey = settings.apiKey?.trim() ?? '';
+  const hasServerProfiles = Array.isArray(settings.customServers);
+  const customServers = normalizeCustomServers(settings.customServers);
+  if (!hasServerProfiles && (legacyGateway || legacyModels.length > 0 || legacyApiKey)) {
+    customServers.push(normalizeServerProfile({
+      id: LEGACY_CUSTOM_SERVER_ID,
+      name: 'Server tùy chỉnh 1',
+      baseUrl: legacyGateway || normalizeGatewayBaseUrl(settings.gatewayBaseUrl),
+      apiKey: legacyApiKey,
+      models: legacyModels,
+      selectedModel: settings.selectedModel,
+    }, LEGACY_CUSTOM_SERVER_ID));
+  }
+
+  const requestedServerId = settings.activeServerId?.trim() ?? '';
   const gatewayBaseUrl = normalizeGatewayBaseUrl(settings.gatewayBaseUrl);
-  const customGatewayBaseUrl = normalizeGatewayBaseUrl(settings.customGatewayBaseUrl) || gatewayBaseUrl;
-  const apiKey = settings.apiKey?.trim() ?? '';
-  const selectedModel = settings.selectedModel?.trim() ?? '';
-  const availableRoutes = new Set([
-    ...MODEL_OPTIONS.map((option) => option.route),
-    ...customModels,
-  ]);
+  const activeServerId = customServers.some((server) => server.id === requestedServerId)
+    ? requestedServerId
+    : gatewayBaseUrl && customServers[0]
+      ? customServers[0].id
+      : DEFAULT_SERVER_ID;
+  const activeServer = customServers.find((server) => server.id === activeServerId);
+  const customServer = customServers[0];
+  const customGatewayBaseUrl = customServer?.baseUrl ?? legacyGateway;
+  const customModels = activeServer?.models ?? customServer?.models ?? legacyModels;
+  const selectedModel = activeServer?.selectedModel
+    || (activeServerId === DEFAULT_SERVER_ID ? settings.selectedModel?.trim() : '')
+    || (activeServerId === DEFAULT_SERVER_ID ? MODEL_OPTIONS[0]?.route ?? '' : customModels[0] ?? '');
+  const apiKey = activeServer?.apiKey ?? customServer?.apiKey ?? legacyApiKey;
+  const availableRoutes = new Set(MODEL_OPTIONS.map((option) => option.route));
+  customServers.forEach((server) => server.models.forEach((route) => availableRoutes.add(route)));
 
   return {
-    gatewayBaseUrl,
+    gatewayBaseUrl: activeServerId === DEFAULT_SERVER_ID ? '' : activeServer?.baseUrl ?? gatewayBaseUrl,
     customGatewayBaseUrl,
     apiKey,
     customModels,
     selectedModel: availableRoutes.has(selectedModel)
       ? selectedModel
-      : DEFAULT_SETUP_SETTINGS.selectedModel,
+      : activeServer?.selectedModel ?? DEFAULT_SETUP_SETTINGS.selectedModel,
+    activeServerId,
+    customServers,
   };
+}
+
+function normalizeCustomServers(value: ServerProfileInput[] | null | undefined): ServerProfile[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const servers: ServerProfile[] = [];
+  for (const item of value) {
+    const fallbackId = `custom-${servers.length + 1}`;
+    const profile = normalizeServerProfile({ ...item, readOnly: false }, fallbackId);
+    if (!servers.some((server) => server.id === profile.id)) {
+      servers.push(profile);
+    }
+  }
+
+  return servers;
 }
 
 function readStorage(): string | null {
@@ -133,5 +162,7 @@ function cloneDefaults(): SetupSettings {
     apiKey: DEFAULT_SETUP_SETTINGS.apiKey,
     customModels: [...DEFAULT_SETUP_SETTINGS.customModels],
     selectedModel: DEFAULT_SETUP_SETTINGS.selectedModel,
+    activeServerId: DEFAULT_SETUP_SETTINGS.activeServerId,
+    customServers: DEFAULT_SETUP_SETTINGS.customServers.map((server) => ({ ...server, models: [...server.models] })),
   };
 }
